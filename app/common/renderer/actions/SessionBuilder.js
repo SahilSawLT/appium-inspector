@@ -361,10 +361,16 @@ export function newSession(originalCaps, attachSessId = null) {
     let appMode = APP_MODE.NATIVE;
 
     if (browserName.trim() !== '') {
-      try {
-        appMode = APP_MODE.WEB_HYBRID;
-        await driver.navigateTo('https://appium.io');
-      } catch {}
+      appMode = APP_MODE.WEB_HYBRID;
+      // Only navigate to a default URL when we just CREATED the session and
+      // the browser would otherwise start on an empty page. When ATTACHING
+      // to an existing session, the browser is already on a user-controlled
+      // page (e.g., their test's current URL) and we must not hijack it.
+      if (!attachSessId) {
+        try {
+          await driver.navigateTo('https://appium.io');
+        } catch {}
+      }
     }
 
     let mjpegScreenshotUrl =
