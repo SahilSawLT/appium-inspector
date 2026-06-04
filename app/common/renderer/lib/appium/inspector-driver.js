@@ -328,6 +328,19 @@ export default class InspectorDriver {
     try {
       contexts = await this.driver.executeScript('mobile:getContexts', []);
       contexts = isAndroid ? this.parseAndroidContexts(contexts) : contexts;
+
+      // Fallback: mobile:getContexts + parseAndroidContexts can silently drop
+      // webview entries when pages are unattached or not of type 'page'. If we
+      // end up with only NATIVE_APP, retry via the standard /contexts endpoint
+      // which returns the full list as plain strings.
+      if (Array.isArray(contexts) && contexts.length <= 1) {
+        try {
+          const stdContexts = await this.driver.getAppiumContexts();
+          if (Array.isArray(stdContexts) && stdContexts.length > contexts.length) {
+            contexts = stdContexts.map((id) => ({id}));
+          }
+        } catch {}
+      }
     } catch (e) {
       contextsError = e;
     }
