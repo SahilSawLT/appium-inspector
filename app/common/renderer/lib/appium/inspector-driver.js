@@ -326,20 +326,38 @@ export default class InspectorDriver {
 
     // Get all available contexts (or the error, if one appears)
     try {
-      contexts = await this.driver.executeScript('mobile:getContexts', []);
-      contexts = isAndroid ? this.parseAndroidContexts(contexts) : contexts;
+      // The standard /contexts endpoint is authoritative for which IDs the
+      // driver will accept in setContext. mobile:getContexts returns richer
+      // data (titles, URLs, pages), but in some configurations it can produce
+      // either too few entries (parser filters drop webviews) or too many
+      // (one entry per browser tab, all collapsing to the same webview ID).
+      // We use the standard list as the source of truth and only enrich
+      // with mobile:getContexts metadata when the IDs match.
+      let stdContextIds = null;
+      try {
+        const rawStd = await this.driver.getAppiumContexts();
+        if (Array.isArray(rawStd)) {
+          stdContextIds = rawStd;
+        }
+      } catch {}
 
-      // Fallback: mobile:getContexts + parseAndroidContexts can silently drop
-      // webview entries when pages are unattached or not of type 'page'. If we
-      // end up with only NATIVE_APP, retry via the standard /contexts endpoint
-      // which returns the full list as plain strings.
-      if (Array.isArray(contexts) && contexts.length <= 1) {
-        try {
-          const stdContexts = await this.driver.getAppiumContexts();
-          if (Array.isArray(stdContexts) && stdContexts.length > contexts.length) {
-            contexts = stdContexts.map((id) => ({id}));
+      let richContexts = await this.driver.executeScript('mobile:getContexts', []);
+      richContexts = isAndroid ? this.parseAndroidContexts(richContexts) : richContexts;
+
+      if (stdContextIds && stdContextIds.length > 0) {
+        // De-duplicate rich entries by id, keeping the first occurrence
+        // (which gives us the active page's title for chrome browser cases).
+        const richById = new Map();
+        if (Array.isArray(richContexts)) {
+          for (const entry of richContexts) {
+            if (entry && entry.id && !richById.has(entry.id)) {
+              richById.set(entry.id, entry);
+            }
           }
-        } catch {}
+        }
+        contexts = stdContextIds.map((id) => richById.get(id) || {id});
+      } else {
+        contexts = richContexts;
       }
     } catch (e) {
       contextsError = e;
