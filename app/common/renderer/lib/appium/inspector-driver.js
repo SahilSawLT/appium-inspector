@@ -326,8 +326,39 @@ export default class InspectorDriver {
 
     // Get all available contexts (or the error, if one appears)
     try {
-      contexts = await this.driver.executeScript('mobile:getContexts', []);
-      contexts = isAndroid ? this.parseAndroidContexts(contexts) : contexts;
+      // The standard /contexts endpoint is authoritative for which IDs the
+      // driver will accept in setContext. mobile:getContexts returns richer
+      // data (titles, URLs, pages), but in some configurations it can produce
+      // either too few entries (parser filters drop webviews) or too many
+      // (one entry per browser tab, all collapsing to the same webview ID).
+      // We use the standard list as the source of truth and only enrich
+      // with mobile:getContexts metadata when the IDs match.
+      let stdContextIds = null;
+      try {
+        const rawStd = await this.driver.getAppiumContexts();
+        if (Array.isArray(rawStd)) {
+          stdContextIds = rawStd;
+        }
+      } catch {}
+
+      let richContexts = await this.driver.executeScript('mobile:getContexts', []);
+      richContexts = isAndroid ? this.parseAndroidContexts(richContexts) : richContexts;
+
+      if (stdContextIds && stdContextIds.length > 0) {
+        // De-duplicate rich entries by id, keeping the first occurrence
+        // (which gives us the active page's title for chrome browser cases).
+        const richById = new Map();
+        if (Array.isArray(richContexts)) {
+          for (const entry of richContexts) {
+            if (entry && entry.id && !richById.has(entry.id)) {
+              richById.set(entry.id, entry);
+            }
+          }
+        }
+        contexts = stdContextIds.map((id) => richById.get(id) || {id});
+      } else {
+        contexts = richContexts;
+      }
     } catch (e) {
       contextsError = e;
     }

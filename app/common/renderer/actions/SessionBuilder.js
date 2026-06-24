@@ -361,10 +361,16 @@ export function newSession(originalCaps, attachSessId = null) {
     let appMode = APP_MODE.NATIVE;
 
     if (browserName.trim() !== '') {
-      try {
-        appMode = APP_MODE.WEB_HYBRID;
-        await driver.navigateTo('https://appium.io');
-      } catch {}
+      appMode = APP_MODE.WEB_HYBRID;
+      // Only navigate to a default URL when we just CREATED the session and
+      // the browser would otherwise start on an empty page. When ATTACHING
+      // to an existing session, the browser is already on a user-controlled
+      // page (e.g., their test's current URL) and we must not hijack it.
+      if (!attachSessId) {
+        try {
+          await driver.navigateTo('https://appium.io');
+        } catch {}
+      }
     }
 
     let mjpegScreenshotUrl =
@@ -750,18 +756,31 @@ export function getRunningSessions() {
     }
 
     if (serverType === SERVER_TYPES.TESTMUAI) {
+      // LTMA endpoint covers RD Web, VD Web, Desktop Selenium (lambda_ltms.test)
       const sessionListHost = host
         .replace(/^mobile-hub\./, 'api.')
         .replace(/^mobile-hub-/, 'api-')
         .replace(/^hub-/, 'api-');
-      const sessionListUrl = `https://${sessionListHost}/automation/api/v1/appium/inspector/sessions`;
-      try {
-        const res = await fetchSessionInformation({url: sessionListUrl, headers});
-        dispatch({type: GET_SESSIONS_DONE, sessions: res.value ?? []});
-      } catch (err) {
-        log.error('Failed to fetch running sessions', err);
-        dispatch({type: GET_SESSIONS_DONE, sessions: []});
-      }
+      const ltmaUrl = `https://${sessionListHost}/automation/api/v1/appium/inspector/sessions`;
+      // MHPS /wd/hub/sessions covers RD App, VD App (lambda_lmms.test, via LMMS proxy)
+      const mhpsUrl = `https://${host}/wd/hub/sessions`;
+
+      const fetchSafe = async (url) => {
+        try {
+          const res = await fetchSessionInformation({url, headers});
+          return res.value ?? [];
+        } catch (err) {
+          log.error(`Failed to fetch running sessions from ${url}`, err);
+          return [];
+        }
+      };
+
+      const [webSessions, appSessions] = await Promise.all([
+        fetchSafe(ltmaUrl),
+        fetchSafe(mhpsUrl),
+      ]);
+
+      dispatch({type: GET_SESSIONS_DONE, sessions: [...webSessions, ...appSessions]});
       return;
     }
 

@@ -19,7 +19,7 @@ export class TestMuAIVendor extends BaseVendor {
       {name: 'Access Key', val: accessKey},
     ]);
 
-    const host = process.env.LAMBDATEST_HOST || 'mobile-hub.lambdatest.com';
+    const host = process.env.LAMBDATEST_HOST || 'mobile-hub-rd-sahil-8-dev.lambdatestinternal.com';
     const port = process.env.LAMBDATEST_PORT || 443;
     const path = '/wd/hub';
     const https = parseInt(String(port), 10) === 443;
